@@ -39,7 +39,6 @@ const char * return_time_of_last_modification(char *file_name, struct stat buf)
 
 void create_sym_link_to_file(char *file_name, char *link_name) 
 {
-    printf("%s\n", link_name);
     if (unlink(link_name) < 0 && errno != ENOENT) {
         perror("unlink");
         return;
@@ -57,7 +56,7 @@ void delete_symbolic_link(char *link_name)
 {
     char *arguments[] = {"rm", link_name, NULL};
 
-    printf("deleting link %s\n", link_name);
+    printf("deleted link %s\n", link_name);
     fflush(stdout);
 
     if (execv("/usr/bin/rm", arguments) == -1)
@@ -95,7 +94,6 @@ void print_file_access_rights(struct stat buf)
     printf((buf.st_mode & S_IROTH) ? "Read - yes\n" : "Read - no\n");
     printf((buf.st_mode & S_IWOTH) ? "Write - yes\n" : "Write - no\n");
     printf((buf.st_mode & S_IXOTH) ? "Exec - yes\n" : "Exec - no\n");
-    printf("\n\n");
 }
 
 void print_regular_file_menu()
@@ -170,7 +168,6 @@ int validate_operations_string(char operations_string[], enum types_of_files typ
     char *characters_allowed_symbolic = "-nldta";
     char *characters_allowed_directory = "-ndac";
     int n = strlen(operations_string);
-    // ignore white space characters until beginning of string
     int i = 0;
     while (isspace(operations_string[i]))
     {
@@ -180,7 +177,6 @@ int validate_operations_string(char operations_string[], enum types_of_files typ
     {
         return 0;
     }
-    // check if characters are not allowed in string
     for (; i < n && !isspace(operations_string[i]); i++)
     {
         if (type_of_file == SYM_FILE && !strchr(characters_allowed_symbolic, operations_string[i]))
@@ -204,7 +200,7 @@ int check_if_file_exists(char *file_name)
     return !access(file_name, F_OK);
 }
 
-int count_c_files(char *dir_path) 
+int count_files_of_c_type(char *dir_path) 
 {
     int file_count = 0;
     DIR *dir;
@@ -232,24 +228,6 @@ int count_c_files(char *dir_path)
     }
     closedir(dir);
     return file_count;
-}
-
-int count_number_of_lines(char *file_name)
-{
-    FILE *fp = fopen(file_name, "r");
-    int ch = 0;
-    int lines = 1;
-
-    while(!feof(fp))
-    {
-        ch = fgetc(fp);
-        if(ch == '\n')
-        {
-            lines++;
-        }
-    }
-
-    return lines;
 }
 
 void execute_operations(char *operations_string, char *file_name, enum types_of_files file_type, struct stat buf)
@@ -332,22 +310,37 @@ void execute_operations(char *operations_string, char *file_name, enum types_of_
                     print_file_access_rights(buf);
                     break;
                 case 'c':
-                    printf("number of c files: %d\n", count_c_files(file_name));
+                    printf("number of c files: %d\n", count_files_of_c_type(file_name));
                     break;
             }
         }
     }
 }
 
-int check_if_c_file(char *file_name) 
-{
-    int file_length = strlen(file_name);
-    return file_name[file_length - 2] == '.' && file_name[file_length - 1] == 'c';
+int calculate_score(int nr_of_errors, int nr_of_warnings)
+{   
+    if (nr_of_errors == 0 && nr_of_warnings == 0)
+    {
+        return 10;
+    }
+    else if (nr_of_errors >= 1)
+    {
+        return 1;
+    }
+    else if (nr_of_errors == 0 && nr_of_warnings > 10)
+    {
+        return 2;
+    }
+    else if (nr_of_errors == 0 && nr_of_warnings <= 10)
+    {
+        return 2 + 8 * (10 - nr_of_warnings) / 10;
+    }
 }
 
 void count_errors_and_warnings(char *file_name) {
-    char *arguments[] = {"bash", "compileCProgram.sh", file_name, "f1.txt", NULL};
-    printf("Compiling file %s\n\n", file_name);
+    char *arguments[] = {"bash", "compileCProgram.sh", file_name, "errors_output.txt", NULL};
+
+    printf("Compiled file %s\n\n", file_name);
     fflush(stdout);
 
     if (execv("/usr/bin/bash", arguments) == -1)
@@ -357,13 +350,31 @@ void count_errors_and_warnings(char *file_name) {
     }
 }
 
-void create_file_in_directory(char *directory_name)
+void count_number_of_lines(char *file_name)
+{
+    FILE *fp = fopen(file_name, "r");
+    int ch = 0;
+    int lines = 1;
+
+    while(!feof(fp))
+    {
+        ch = fgetc(fp);
+        if(ch == '\n')
+        {
+            lines++;
+        }
+    }
+
+    printf("Number of lines: %d\n\n", lines);
+}
+
+void create_file(char *directory_name)
 {
     char file_name[256];
     strcpy(file_name, strcat(directory_name, "_file.txt"));
     char *arguments[] = {"touch", directory_name, NULL};
 
-    printf("Creating file %s\n\n", file_name);
+    printf("\nCreated file %s\n\n", file_name);
     fflush(stdout);
 
     if (execv("/usr/bin/touch", arguments) == -1)
@@ -373,14 +384,11 @@ void create_file_in_directory(char *directory_name)
     }
 }
 
-void change_permission(char *link_name)
+void change_permissions(char *link_name)
 {
     char *arguments[] = {"chmod", "-v", "760", link_name, NULL};
-
-    printf("Changing %s permission:\n\n", link_name);
-    fflush(stdout);
-
-    if (execv("usr/bin/chmod", arguments) == -1)
+    printf("Changing permissions to 'rwxrw----'\n");
+    if(execv("/usr/bin/chmod", arguments) == -1) 
     {
         perror("execv");
         exit(EXIT_FAILURE);
@@ -389,17 +397,28 @@ void change_permission(char *link_name)
 
 void loop(int nr_of_files, char *file_names[])
 {
-    pid_t pid1;
-    pid_t pid2;
+    pid_t process1;
+    pid_t process2;
+    int fd[2];
+    int st1;
+    int st2;
+    char buffer[4096];
     for (int i = 1; i < nr_of_files; i++)
     {
-        if ((pid1 = fork()) < 0) 
+
+        if (pipe(fd) == -1)
         {
-            printf("Something went wrong while creating child process 1\n");
-            exit(1);
+            perror("pipe");
+            exit(EXIT_FAILURE);
         }
 
-        if (pid1 == 0)
+        if ((process1 = fork()) < 0) 
+        {
+            printf("Something went wrong while creating child process 1\n");
+            exit(EXIT_FAILURE);
+        }
+
+        if (process1 == 0)
         {
             char *file_name = file_names[i];
             if (!check_if_file_exists(file_name))
@@ -431,16 +450,18 @@ void loop(int nr_of_files, char *file_names[])
             execute_operations(operations_string, file_name, file_type, buf);
             exit(0);
         }
-        else if (pid1 > 0)
+        else if (process1 > 0)
         {
-            if ((pid2 = fork()) < 0) 
+            if ((process2 = fork()) < 0) 
             {
                 printf("Something went wrong while creating child process 2\n");
                 exit(1);
             }
 
-            if (pid2 == 0)
+            if (process2 == 0)
             {
+                close(fd[0]);
+
                 char *file_name = file_names[i];
                 enum types_of_files file_type = return_file_type(file_name);
                 if (file_type == REG_FILE) 
@@ -448,26 +469,103 @@ void loop(int nr_of_files, char *file_names[])
                     char *extension = strstr(file_name, ".c");
                     if (extension)
                     {
+                        if (dup2(fd[1], STDOUT_FILENO) == -1)
+                        {
+                            perror("dup2");
+                            exit(EXIT_FAILURE);
+                        }
+
+                        if(close(fd[1]) == -1) 
+                        {
+                            perror("close");
+                            exit(EXIT_FAILURE);
+                        }
                         count_errors_and_warnings(file_name);
                     }
                     else
                     {
-                        printf("Number of lines in file %s: %d\n\n", file_name, count_number_of_lines(file_name));
+                        if (dup2(fd[1], STDOUT_FILENO) == -1)
+                        {
+                            perror("dup2");
+                            exit(EXIT_FAILURE);
+                        }
+
+                        if(close(fd[1]) == -1) 
+                        {
+                            perror("close");
+                            exit(EXIT_FAILURE);
+                        }
+
+                        count_number_of_lines(file_name);
                     }
                 }
                 else if (file_type == DIRECTORY)
                 {
-                    create_file_in_directory(file_name);
+                    if (dup2(fd[1], STDOUT_FILENO) == -1)
+                    {
+                        perror("dup2");
+                        exit(EXIT_FAILURE);
+                    }
+
+                    if(close(fd[1]) == -1) 
+                    {
+                        perror("close");
+                        exit(EXIT_FAILURE);
+                    }
+                    create_file(file_name);
                 }
                 else if (file_type == SYM_FILE)
                 {
-                    change_permission(file_name);
+                    if (dup2(fd[1], STDOUT_FILENO) == -1)
+                    {
+                        perror("dup2");
+                        exit(EXIT_FAILURE);
+                    }
+
+                    if(close(fd[1]) == -1) 
+                    {
+                        perror("close");
+                        exit(EXIT_FAILURE);
+                    }
+                    change_permissions(file_name);
                 }
-                exit(0);
+                exit(1);
             }
-            wait(NULL);
+            else if (process2 > 0)
+            {
+                close(fd[1]);
+
+                int n1, n2;
+        
+                waitpid(process1, &st1, 0);
+
+                while((n2 = read(fd[0], buffer, sizeof(buffer))) > 0) 
+                {
+                    buffer[n2] = '\0';
+                    write(STDOUT_FILENO, buffer, n2);
+                }
+
+                waitpid(process2, &st2, 0);
+        
+                printf("\n");
+                if(WIFEXITED(st1))
+                {
+                    printf("Process with PID %d has ended with the exit code %d\n", process1,  WEXITSTATUS(st1));
+                }
+                else
+                {
+                    printf("Process with PID %d has not ended correctly\n", process1);
+                }
+                if(WIFEXITED(st2))
+                {
+                    printf("Process with PID %d has ended with the exit code %d\n", process2, WEXITSTATUS(st2));
+                }
+                else
+                {
+                    printf("Child with PID %d has not ended correctly\n", process2);
+                }
+            }
         }
-        wait(NULL);
     }
 }
 

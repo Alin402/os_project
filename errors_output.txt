@@ -1,0 +1,7 @@
+hello_world.c: In function ‘main’:
+hello_world.c:4:13: error: expected ‘;’ before ‘}’ token
+    4 |     return 0
+      |             ^
+      |             ;
+    5 | }
+      | ~            
