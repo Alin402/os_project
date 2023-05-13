@@ -39,17 +39,45 @@ const char * return_time_of_last_modification(char *file_name, struct stat buf)
 
 void create_sym_link_to_file(char *file_name, char *link_name) 
 {
-    int sym_link = symlink(file_name, link_name);
-    if(sym_link == 0) 
-    {
-        printf("Sym link created successfuly\n");
+    printf("%s\n", link_name);
+    if (unlink(link_name) < 0 && errno != ENOENT) {
+        perror("unlink");
+        return;
     }
+
+    if (symlink(file_name, link_name) < 0) {
+        perror("fstat");
+        return;
+    }
+
+    printf("You created the symbolic link '%s' for file '%s'\n", link_name, file_name);
 }
 
 void delete_symbolic_link(char *link_name) 
 {
-    unlink(link_name);
-    printf("successfuly deleted link\n");
+    char *arguments[] = {"rm", link_name, NULL};
+
+    printf("deleting link %s\n", link_name);
+    fflush(stdout);
+
+    if (execv("/usr/bin/rm", arguments) == -1)
+    {
+        perror("execv");
+        exit(EXIT_FAILURE);
+    }
+}
+
+void get_file_name(char file_path[])
+{
+    int l = strlen(file_path);
+    for (int i = l - 1; i >= 0; i--)
+    {
+        if (file_path[i] == '.')
+        {
+            file_path[i] = '\0';
+            break;
+        }
+    }
 }
 
 void print_file_access_rights(struct stat buf) 
@@ -139,7 +167,8 @@ void print_menu_depending_on_file_type(char *file_name)
 int validate_operations_string(char operations_string[], enum types_of_files type_of_file)
 {
     char *characters_allowed_regular = "-ndhmal";
-    char *characters_allowed_symbolic = "-ndatl";
+    char *characters_allowed_symbolic = "-nldta";
+    char *characters_allowed_directory = "-ndac";
     int n = strlen(operations_string);
     // ignore white space characters until beginning of string
     int i = 0;
@@ -162,8 +191,17 @@ int validate_operations_string(char operations_string[], enum types_of_files typ
         {
             return 0;
         }
+        if (type_of_file == DIRECTORY && !strchr(characters_allowed_directory, operations_string[i]))
+        {
+            return 0;
+        }
     }
     return 1;
+}
+
+int check_if_file_exists(char *file_name)
+{
+    return !access(file_name, F_OK);
 }
 
 int count_c_files(char *dir_path) 
@@ -232,7 +270,10 @@ void execute_operations(char *operations_string, char *file_name, enum types_of_
             switch(operation) 
             {
                 case 'n':
-                    printf("file name: %s\n", file_name);
+                    char f_name[256];
+                    strcpy(f_name, file_name);
+                    get_file_name(f_name);
+                    printf("file name: %s\n", f_name);
                     break;
                 case 'd':
                     printf("dim/size: %ld bytes\n", return_file_dimension(file_name, buf));
@@ -248,7 +289,7 @@ void execute_operations(char *operations_string, char *file_name, enum types_of_
                     break;
                 case 'l':
                     printf("Give name of new symbolic link:\n");
-                    char *link_name;
+                    char link_name[256];
                     scanf("%s", link_name);
                     create_sym_link_to_file(file_name, link_name);
                     break;
@@ -301,20 +342,7 @@ void execute_operations(char *operations_string, char *file_name, enum types_of_
 int check_if_c_file(char *file_name) 
 {
     int file_length = strlen(file_name);
-    printf("%d\n", file_name[file_length - 2] == '.' && file_name[file_length - 1] == 'c');
     return file_name[file_length - 2] == '.' && file_name[file_length - 1] == 'c';
-}
-
-void execute_c_file(char *file_name) 
-{
-    char* arguments[] = {"bash", "compile_c.sh", file_name, "f1.txt", NULL};      
-    printf("Executing c file %s\n\n", file_name);
-    if(execv("/usr/bin/bash", arguments) == -1) 
-    {
-        perror("execv");
-        exit(EXIT_FAILURE);
-    }
-    exit(0);
 }
 
 void count_errors_and_warnings(char *file_name) {
@@ -374,6 +402,12 @@ void loop(int nr_of_files, char *file_names[])
         if (pid1 == 0)
         {
             char *file_name = file_names[i];
+            if (!check_if_file_exists(file_name))
+            {
+                printf("File %s not found!\n\n", file_name);
+                exit(1);
+            }
+
             enum types_of_files file_type = return_file_type(file_name);
             printf("\n<< %s >>\n\n", file_name);
             print_menu_depending_on_file_type(file_name);
@@ -388,9 +422,8 @@ void loop(int nr_of_files, char *file_names[])
                 printf("<< %s >>\n\n", file_name);
                 print_menu_depending_on_file_type(file_name);
                 printf("an example format is \"-nd\"\n\n");
-                char operations_string[10];
                 scanf("%s", operations_string);
-                validate_operations_string(operations_string, file_type);
+                is_valid_operations_string = validate_operations_string(operations_string, file_type);
             }
 
             struct stat buf;
