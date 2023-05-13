@@ -100,23 +100,39 @@ void print_directory_menu()
     printf("%s\n\n", msg);
 }
 
-enum types_of_files print_menu_depending_on_file_type(char *file_name)
+enum types_of_files return_file_type(char *file_name)
 {
     struct stat buf;
     lstat(file_name, &buf);
+
     if (S_ISLNK(buf.st_mode))
     {
-        print_symbolic_link_menu();
         return SYM_FILE;
     }
-    else if (S_ISDIR(buf.st_mode)) {
-        print_directory_menu();
+    else if (S_ISDIR(buf.st_mode))
+    {
         return DIRECTORY;
     }
-    else
+    else if (S_ISREG(buf.st_mode))
+    {
+        return REG_FILE;
+    }
+}
+
+void print_menu_depending_on_file_type(char *file_name)
+{
+    enum types_of_files file_type = return_file_type(file_name);
+    if (file_type == SYM_FILE)
+    {
+        print_symbolic_link_menu();
+    }
+    else if (file_type == DIRECTORY) 
+    {
+        print_directory_menu();
+    }
+    else if (file_type == REG_FILE)
     {
         print_regular_file_menu();
-        return REG_FILE;
     }
 }
 
@@ -178,6 +194,24 @@ int count_c_files(char *dir_path)
     }
     closedir(dir);
     return file_count;
+}
+
+int count_number_of_lines(char *file_name)
+{
+    FILE *fp = fopen(file_name, "r");
+    int ch = 0;
+    int lines = 1;
+
+    while(!feof(fp))
+    {
+        ch = fgetc(fp);
+        if(ch == '\n')
+        {
+            lines++;
+        }
+    }
+
+    return lines;
 }
 
 void execute_operations(char *operations_string, char *file_name, enum types_of_files file_type, struct stat buf)
@@ -283,9 +317,52 @@ void execute_c_file(char *file_name)
     exit(0);
 }
 
+void count_errors_and_warnings(char *file_name) {
+    char *arguments[] = {"bash", "compileCProgram.sh", file_name, "f1.txt", NULL};
+    printf("Compiling file %s\n\n", file_name);
+    fflush(stdout);
+
+    if (execv("/usr/bin/bash", arguments) == -1)
+    {
+        perror("execv");
+        exit(EXIT_FAILURE);
+    }
+}
+
+void create_file_in_directory(char *directory_name)
+{
+    char file_name[256];
+    strcpy(file_name, strcat(directory_name, "_file.txt"));
+    char *arguments[] = {"touch", directory_name, NULL};
+
+    printf("Creating file %s\n\n", file_name);
+    fflush(stdout);
+
+    if (execv("/usr/bin/touch", arguments) == -1)
+    {
+        perror("execv");
+        exit(EXIT_FAILURE);
+    }
+}
+
+void change_permission(char *link_name)
+{
+    char *arguments[] = {"chmod", "-v", "760", link_name, NULL};
+
+    printf("Changing %s permission:\n\n", link_name);
+    fflush(stdout);
+
+    if (execv("usr/bin/chmod", arguments) == -1)
+    {
+        perror("execv");
+        exit(EXIT_FAILURE);
+    }
+}
+
 void loop(int nr_of_files, char *file_names[])
 {
     pid_t pid1;
+    pid_t pid2;
     for (int i = 1; i < nr_of_files; i++)
     {
         if ((pid1 = fork()) < 0) 
@@ -296,10 +373,10 @@ void loop(int nr_of_files, char *file_names[])
 
         if (pid1 == 0)
         {
-            printf("Intra aici");
             char *file_name = file_names[i];
-            printf("<< %s >>\n\n", file_name);
-            enum types_of_files file_type = print_menu_depending_on_file_type(file_name);
+            enum types_of_files file_type = return_file_type(file_name);
+            printf("\n<< %s >>\n\n", file_name);
+            print_menu_depending_on_file_type(file_name);
             printf("an example format is \"-nd\"\n\n");
             char operations_string[10];
             scanf("%s", operations_string);
@@ -309,11 +386,11 @@ void loop(int nr_of_files, char *file_names[])
             {
                 printf("\nThe string << %s >> is not a valid input\nPlease try again\n\n", operations_string);
                 printf("<< %s >>\n\n", file_name);
-                enum types_of_files file_type = print_menu_depending_on_file_type(file_name);
+                print_menu_depending_on_file_type(file_name);
                 printf("an example format is \"-nd\"\n\n");
                 char operations_string[10];
                 scanf("%s", operations_string);
-                is_valid_operations_string = validate_operations_string(operations_string, file_type);
+                validate_operations_string(operations_string, file_type);
             }
 
             struct stat buf;
@@ -321,10 +398,43 @@ void loop(int nr_of_files, char *file_names[])
             execute_operations(operations_string, file_name, file_type, buf);
             exit(0);
         }
-        else
+        else if (pid1 > 0)
         {
+            if ((pid2 = fork()) < 0) 
+            {
+                printf("Something went wrong while creating child process 2\n");
+                exit(1);
+            }
+
+            if (pid2 == 0)
+            {
+                char *file_name = file_names[i];
+                enum types_of_files file_type = return_file_type(file_name);
+                if (file_type == REG_FILE) 
+                {
+                    char *extension = strstr(file_name, ".c");
+                    if (extension)
+                    {
+                        count_errors_and_warnings(file_name);
+                    }
+                    else
+                    {
+                        printf("Number of lines in file %s: %d\n\n", file_name, count_number_of_lines(file_name));
+                    }
+                }
+                else if (file_type == DIRECTORY)
+                {
+                    create_file_in_directory(file_name);
+                }
+                else if (file_type == SYM_FILE)
+                {
+                    change_permission(file_name);
+                }
+                exit(0);
+            }
             wait(NULL);
         }
+        wait(NULL);
     }
 }
 
